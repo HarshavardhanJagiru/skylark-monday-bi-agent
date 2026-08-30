@@ -223,8 +223,8 @@ Every query response contains an explicit **Data Quality & Caveats Box**:
 
 ## Testing & Monday.com GraphQL Details
 
-* **Automated Unit Tests**: Includes 15 automated Vitest unit tests covering sector normalization, numeric currency parsing, date parsing, data quality audits, Q1–Q4 quarter boundary calculations, missing dates, and cross-board analytics.
-* **Test Status**: **15 / 15 tests currently passing** (`npm test`).
+* **Automated Unit Tests**: Includes 20 automated Vitest unit tests covering sector normalization, numeric currency parsing, date parsing, data quality audits, Q1–Q4 quarter boundary calculations, missing dates, and cross-board analytics.
+* **Test Status**: **20 / 20 tests currently passing** (`npm test`).
 * **Monday.com GraphQL Retrieval**: Uses `cursor` pagination (`do { ... } while (cursor);`) to fetch 100% of items from both boards.
 * **Field Mapping**: Uses stable Monday column IDs (`col_<id>`) as primary keys with human-readable titles as fallback for reliable record mapping.
 
