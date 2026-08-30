@@ -21,8 +21,8 @@ Executive teams need quick, reliable answers about revenue, pipeline health, sec
 ## Solution
 
 1. **Separation of Math & Language**: Deterministic JS/TS analytics engine handles all numerical aggregations, financial sums, and probability weightings. The LLM is restricted to intent classification, ambiguity detection, and natural-language executive synthesis.
-2. **Dynamic Normalization & Audit**: Dynamic cleanup layer canonicalizes sector names (e.g. `energy` → `Energy`), parses dates (ISO, Excel serials, DD/MM/YYYY) to `YYYY-MM-DD`, strips currency formatting without converting nulls into fake zeroes, and tracks data quality caveats.
-3. **Monday.com GraphQL Integration**: Direct read-only connection via Monday.com GraphQL API v2 with pagination, in-memory caching, and automated board population scripts.
+2. **Dynamic Normalization & Audit**: Dynamic cleanup layer canonicalizes sector names (e.g. `energy` → `Energy`), parses dates (ISO, Excel serials, DD/MM/YYYY) to `YYYY-MM-DD`, strips currency formatting without converting nulls into fake zeroes, filters out 2 imported non-business header-artifact rows, and tracks data quality caveats.
+3. **Monday.com GraphQL Integration**: Direct read-only connection via Monday.com GraphQL API v2 using full `cursor` pagination, stable column ID (`col_<id>`) mapping, in-memory caching, and automated board population scripts.
 
 ---
 
@@ -75,13 +75,16 @@ Executive teams need quick, reliable answers about revenue, pipeline health, sec
 
 ## Monday.com Setup & Data Import
 
+### Production Data Source of Truth
+The supplied Excel spreadsheets (`Deal funnel Data.xlsx` and `Work_Order_Tracker Data.xlsx`) are used strictly to populate the Monday.com boards via the `npm run import-data` script. Live production queries read dynamically from the Monday.com GraphQL API and never parse the Excel files.
+
 ### 1. Obtain Monday.com API Token
 1. Log into your [Monday.com](https://monday.com) workspace.
 2. Go to **Avatar (Bottom Left) → Administration → API**.
 3. Copy your Personal API Token.
 
 ### 2. Automated Import Script (`scripts/import_to_monday.js`)
-We provide a zero-configuration script that automatically creates the **Deals** and **Work Orders** boards in your Monday.com workspace and populates them using the provided Excel files (`Deal funnel Data.xlsx` and `Work_Order_Tracker Data.xlsx`):
+We provide a zero-configuration script that automatically creates the **Deals** and **Work Orders** boards in your Monday.com workspace and populates them using the provided Excel files:
 
 ```bash
 # 1. Set MONDAY_API_TOKEN in .env
@@ -125,7 +128,7 @@ PORT=3001
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/your-username/skylark-monday-bi-agent.git
+git clone https://github.com/HarshavardhanJagiru/skylark-monday-bi-agent.git
 cd skylark-monday-bi-agent
 
 # 2. Install dependencies
@@ -161,22 +164,38 @@ Open [http://localhost:5173](http://localhost:5173) in your browser.
 
 ---
 
-## Supported Queries
+## Dynamic & Explicit Quarter-Level Filtering
 
-1. **Pipeline Queries**: *"How is our pipeline looking this quarter?"*
-2. **Sector Performance**: *"Which sector has the highest pipeline value?"*
-3. **Financials & Receivables**: *"What is our current receivables position?"*
-4. **Operations & Delays**: *"Which projects are delayed?"*
-5. **Cross-Board Analysis**: *"Compare sales pipeline and execution by sector."*
-6. **Executive Briefing**: *"Prepare a leadership update"* (or click the top **Generate Leadership Update** button).
-7. **Ambiguity Test**: *"Show top performance"* (Triggers intent clarification modal).
+* **Current Quarter Queries**: Prompts specifying *"this quarter"* or *"current quarter"* dynamically compute calendar quarter boundaries from the system date (`new Date()`).
+* **Calendar Quarter Boundaries**:
+  * **Q1**: Jan 01 – Mar 31
+  * **Q2**: Apr 01 – Jun 30
+  * **Q3**: Jul 01 – Sep 30
+  * **Q4**: Oct 01 – Dec 31
+* **Explicit Quarter Queries**: Prompts such as *"Q1 2026"* or *"Q2 2026"* extract the explicit quarter number and target year dynamically. If year is unassigned, it defaults to the current system clock year.
+* **Field Selection for Pipeline Close Date**: Uses `Tentative Close Date` as the primary expected close date field, falling back to `Close Date (A)` where applicable.
+* **Exclusion & Quality Warnings**: Active deals with missing or invalid expected close dates are excluded from quarter-specific financial totals and explicitly surfaced as data-quality caveats.
+* **Overall Active Pipeline**: General queries such as *"What is our total active pipeline?"* do NOT apply quarter filtering and return overall active pipeline totals.
 
 ---
 
-## Data Normalization Rules
+## Supported Queries
 
-* **Text**: Trims trailing spaces. Maps variations like `energy`, `ENERGY`, `Renewable Sector` to canonical titles (`Energy`, `Renewables`). Strips prefixes from deal stages (`A. Lead Generated` → `Lead Generated`).
-* **Dates**: Converts ISO strings, DD/MM/YYYY, and Excel timestamp serial numbers into `YYYY-MM-DD`. Returns `null` if invalid.
+1. **Pipeline Queries**: *"How is our pipeline looking this quarter?"* or *"How was our pipeline in Q1 2026?"*
+2. **Sector Performance**: *"Which sector has the highest pipeline value?"*
+3. **Financials & Receivables**: *"What is our current receivables position?"*
+4. **Operations & Delays**: *"Which projects are delayed?"*
+5. **Cross-Board Analysis**: *"Which sectors have strong sales pipeline but weak execution?"*
+6. **Executive Briefing**: *"Prepare a leadership update"* (or click the top **Generate Leadership Update** button).
+7. **Ambiguity Test**: *"Show me our best customers"* (Triggers intent clarification modal).
+
+---
+
+## Data Normalization & Header-Artifact Filtering
+
+* **Text Normalization**: Trims trailing spaces. Maps variations like `energy`, `ENERGY`, `Renewable Sector` to canonical titles (`Energy`, `Renewables`). Strips prefixes from deal stages (`A. Lead Generated` → `Lead Generated`).
+* **Header-Artifact Exclusion**: The normalization layer detects and excludes exactly 2 non-business header-artifact records introduced during spreadsheet import into Monday.com. These records contain literal header strings such as `Deal Stage` and `Deal Status`. Excluding these non-business header rows ensures active deal metrics represent real business opportunities (217 active business deals).
+* **Dates**: Converts ISO strings, `DD/MM/YYYY`, and Excel timestamp serial numbers into `YYYY-MM-DD`. Returns `null` if invalid.
 * **Numbers**: Removes `₹`, `$`, `,`, and whitespace. Converts to floating point. Missing/blank values remain `null` to avoid fake zeroes.
 
 ---
@@ -186,13 +205,13 @@ Open [http://localhost:5173](http://localhost:5173) in your browser.
 Every query response contains an explicit **Data Quality & Caveats Box**:
 * Audits missing close dates, unrecorded deal values, and missing closure probabilities.
 * Audits work orders missing execution status or receivables figures.
-* Communicates explicit sample limitations (e.g. *"258 deal records are missing closure probability, so weighted pipeline excludes those specific records."*).
+* Communicates explicit sample limitations (e.g. *"179 of 344 deal records do not have a deal value recorded and are excluded from financial totals."*).
 
 ---
 
-## AI Approach
+## AI Approach & Safety
 
-* **Zero Math in LLM**: The LLM is used purely for **Query Classification** (extracting intent, sector, time period) and **Executive Natural Language Synthesis**.
+* **Zero Math in LLM**: The LLM is used purely for **Query Classification** (extracting intent, sector, quarter, target year) and **Executive Natural Language Synthesis**.
 * **Deterministic Engine**: Pure JavaScript functions calculate pipeline sums, weighted values ($Value \times Probability$), receivables, and operational completion percentages.
 * **Fallback Resilience**: If Gemini API key is not present or hits rate limits, the system seamlessly uses a deterministic rule-based query classifier and executive template generator.
 
@@ -200,9 +219,18 @@ Every query response contains an explicit **Data Quality & Caveats Box**:
 
 ## Error Handling
 
-* **Monday.com API Failures**: Caught gracefully with clear diagnostic messages. Falls back dynamically to on-the-fly Excel parsing if credentials are unconfigured.
+* **Monday.com API Failures**: Caught gracefully with clear diagnostic messages. Throws explicit authentication/board error messages when tokens or board IDs are invalid.
 * **Invalid Input / Ambiguity**: Returns structured clarification options rather than making arbitrary guesses.
 * **Secret Protection**: API tokens remain strictly on the backend Node server and are never sent to the browser client.
+
+---
+
+## Testing & Monday.com GraphQL Details
+
+* **Automated Unit Tests**: Includes 15 automated Vitest unit tests covering sector normalization, numeric currency parsing, date parsing, data quality audits, Q1–Q4 quarter boundary calculations, missing dates, and cross-board analytics.
+* **Test Status**: **15 / 15 tests currently passing** (`npm test`).
+* **Monday.com GraphQL Retrieval**: Uses `cursor` pagination (`do { ... } while (cursor);`) to fetch 100% of items from both boards.
+* **Field Mapping**: Uses stable Monday column IDs (`col_<id>`) as primary keys with human-readable titles as fallback for reliable record mapping.
 
 ---
 
@@ -223,5 +251,5 @@ Every query response contains an explicit **Data Quality & Caveats Box**:
 
 ## Limitations & Future Improvements
 
-* **Current Limitations**: Cross-board matching relies on exact string match between Deal Name and WO Deal Name.
+* **Current Limitations**: Cross-Board matching relies on sector aggregation and deal name exact matching.
 * **Future Roadmap**: Implement fuzzy string matching (Levenshtein distance) for deal names, add automated webhooks for real-time Monday.com change notifications, and support multi-currency conversion.
