@@ -3,6 +3,7 @@ import { mondayService } from '../services/mondayService.js';
 import { normalizeDeal, normalizeWorkOrder, auditDataQuality, getFieldValue } from '../services/normalizationService.js';
 import { 
   calculatePipelineMetrics, 
+  calculateCustomerMetrics,
   calculateFinancialMetrics, 
   calculateOperationalMetrics, 
   calculateCrossBoardMetrics, 
@@ -125,9 +126,11 @@ router.post('/chat', async (req, res) => {
     const isQuarterQuery = !!intentInfo.isQuarterQuery;
     const pipeline = calculatePipelineMetrics(deals, { 
       filterQuarter: isQuarterQuery,
+      sector: intentInfo.sector,
       quarter: intentInfo.targetQuarter,
       year: intentInfo.targetYear
     });
+    const customer = calculateCustomerMetrics(deals);
     const financial = calculateFinancialMetrics(workOrders);
     const operational = calculateOperationalMetrics(workOrders);
     const crossBoard = calculateCrossBoardMetrics(deals, workOrders);
@@ -136,6 +139,7 @@ router.post('/chat', async (req, res) => {
       intent: intentInfo.intent,
       sector: intentInfo.sector,
       pipeline,
+      customer,
       financial,
       operational,
       crossBoard

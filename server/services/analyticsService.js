@@ -1,4 +1,4 @@
-import { normalizeDeal, normalizeWorkOrder, auditDataQuality } from './normalizationService.js';
+import { normalizeDeal, normalizeWorkOrder, auditDataQuality, normalizeSector } from './normalizationService.js';
 
 /**
  * Deterministic Business Intelligence Calculations Engine
@@ -55,20 +55,29 @@ export function getCurrentQuarterInfo(refDate = new Date()) {
 
 /**
  * Calculate Pipeline Analytics from raw/normalized Deals
- * Supports dynamic quarter-level filtering for specific target quarter & year
+ * Supports dynamic quarter-level filtering and sector filtering
  */
 export function calculatePipelineMetrics(normalizedDeals, options = {}) {
   // Filter out null records from header artifact removal
   const cleanDeals = (normalizedDeals || []).filter(Boolean);
 
-  const { filterQuarter = false, quarter = null, year = null, referenceDate = new Date() } = options;
+  const { filterQuarter = false, sector = null, quarter = null, year = null, referenceDate = new Date() } = options;
   const quarterInfo = getQuarterInfo({ quarter, year, referenceDate });
 
   // Active Deals Filtering Condition
-  const activeDeals = cleanDeals.filter(d => 
+  let activeDeals = cleanDeals.filter(d => 
     d.dealStatus !== 'Dead' && 
     !['Project Lost', 'L. Project Lost', 'O. Not Relevant at all', 'N. Not relevant at the moment'].includes(d.dealStage)
   );
+
+  let isSectorFiltered = false;
+  let targetSector = null;
+
+  if (sector && typeof sector === 'string' && sector.trim() !== '') {
+    isSectorFiltered = true;
+    targetSector = normalizeSector(sector);
+    activeDeals = activeDeals.filter(d => d.sector && d.sector.toLowerCase() === targetSector.toLowerCase());
+  }
 
   let dealsToProcess = activeDeals;
   let dealsExcludedMissingDate = 0;
@@ -126,14 +135,14 @@ export function calculatePipelineMetrics(normalizedDeals, options = {}) {
     stageBreakdown[stage].deals.push(deal.dealName);
 
     // Sector breakdown
-    const sector = deal.sector;
-    if (!sectorBreakdown[sector]) {
-      sectorBreakdown[sector] = { count: 0, totalValue: 0, weightedValue: 0 };
+    const sec = deal.sector;
+    if (!sectorBreakdown[sec]) {
+      sectorBreakdown[sec] = { count: 0, totalValue: 0, weightedValue: 0 };
     }
-    sectorBreakdown[sector].count++;
-    sectorBreakdown[sector].totalValue += (deal.dealValue || 0);
+    sectorBreakdown[sec].count++;
+    sectorBreakdown[sec].totalValue += (deal.dealValue || 0);
     if (deal.dealValue !== null && deal.closureProbability !== null) {
-      sectorBreakdown[sector].weightedValue += deal.dealValue * deal.closureProbability;
+      sectorBreakdown[sec].weightedValue += deal.dealValue * deal.closureProbability;
     }
 
     // Close date checks
@@ -150,6 +159,8 @@ export function calculatePipelineMetrics(normalizedDeals, options = {}) {
   return {
     isQuarterFiltered: filterQuarter,
     quarterInfo: filterQuarter ? quarterInfo : null,
+    isSectorFiltered,
+    targetSector,
     totalDealsCount: cleanDeals.length,
     activeDealsCountBeforeFilter: activeDeals.length,
     activeDealsCount: dealsToProcess.length,
@@ -165,6 +176,47 @@ export function calculatePipelineMetrics(normalizedDeals, options = {}) {
     missingCloseDatesCount: missingCloseDates.length,
     approachingCloseDatesCount: approachingCloseDates.length,
     activeDealsSample: dealsToProcess.slice(0, 5)
+  };
+}
+
+/**
+ * Calculate Customer Pipeline Metrics (Rank Customers by Active Pipeline Value)
+ */
+export function calculateCustomerMetrics(normalizedDeals) {
+  const cleanDeals = (normalizedDeals || []).filter(Boolean);
+  const activeDeals = cleanDeals.filter(d => 
+    d.dealStatus !== 'Dead' && 
+    !['Project Lost', 'L. Project Lost', 'O. Not Relevant at all', 'N. Not relevant at the moment'].includes(d.dealStage)
+  );
+
+  const customerMap = {};
+  activeDeals.forEach(d => {
+    const client = d.clientCode || 'Unassigned Client';
+    if (!customerMap[client]) {
+      customerMap[client] = {
+        clientCode: client,
+        activeDealsCount: 0,
+        totalPipelineValue: 0,
+        weightedValue: 0,
+        deals: []
+      };
+    }
+    customerMap[client].activeDealsCount++;
+    if (d.dealValue !== null) {
+      customerMap[client].totalPipelineValue += d.dealValue;
+    }
+    if (d.dealValue !== null && d.closureProbability !== null) {
+      customerMap[client].weightedValue += d.dealValue * d.closureProbability;
+    }
+    customerMap[client].deals.push(d.dealName);
+  });
+
+  const sortedCustomers = Object.values(customerMap).sort((a, b) => b.totalPipelineValue - a.totalPipelineValue);
+
+  return {
+    totalActiveDeals: activeDeals.length,
+    totalCustomersCount: sortedCustomers.length,
+    topCustomers: sortedCustomers
   };
 }
 
@@ -298,9 +350,9 @@ export function calculateCrossBoardMetrics(normalizedDeals, normalizedWorkOrders
   const sectorComparison = {};
 
   // Aggregate Deals by Sector
-  Object.entries(pipelineMetrics.sectorBreakdown).forEach(([sector, data]) => {
-    sectorComparison[sector] = {
-      sector,
+  Object.entries(pipelineMetrics.sectorBreakdown).forEach(([sec, data]) => {
+    sectorComparison[sec] = {
+      sector: sec,
       activeDealsCount: data.count,
       pipelineValue: data.totalValue,
       weightedPipelineValue: data.weightedValue,
@@ -316,10 +368,10 @@ export function calculateCrossBoardMetrics(normalizedDeals, normalizedWorkOrders
   // Aggregate Work Orders by Sector
   const cleanWorkOrders = (normalizedWorkOrders || []).filter(Boolean);
   cleanWorkOrders.forEach(wo => {
-    const sector = wo.sector;
-    if (!sectorComparison[sector]) {
-      sectorComparison[sector] = {
-        sector,
+    const sec = wo.sector;
+    if (!sectorComparison[sec]) {
+      sectorComparison[sec] = {
+        sector: sec,
         activeDealsCount: 0,
         pipelineValue: 0,
         weightedPipelineValue: 0,
@@ -332,12 +384,12 @@ export function calculateCrossBoardMetrics(normalizedDeals, normalizedWorkOrders
       };
     }
 
-    sectorComparison[sector].workOrdersCount++;
-    if (wo.executionStatus === 'Completed') sectorComparison[sector].completedWOCount++;
-    if (wo.executionStatus === 'In Progress') sectorComparison[sector].inProgressWOCount++;
-    if (wo.billedValue) sectorComparison[sector].totalBilledValue += wo.billedValue;
-    if (wo.collectedAmount) sectorComparison[sector].totalCollectedAmount += wo.collectedAmount;
-    if (wo.amountReceivable) sectorComparison[sector].totalReceivable += wo.amountReceivable;
+    sectorComparison[sec].workOrdersCount++;
+    if (wo.executionStatus === 'Completed') sectorComparison[sec].completedWOCount++;
+    if (wo.executionStatus === 'In Progress') sectorComparison[sec].inProgressWOCount++;
+    if (wo.billedValue) sectorComparison[sec].totalBilledValue += wo.billedValue;
+    if (wo.collectedAmount) sectorComparison[sec].totalCollectedAmount += wo.collectedAmount;
+    if (wo.amountReceivable) sectorComparison[sec].totalReceivable += wo.amountReceivable;
   });
 
   // Insights / Bottleneck Identification

@@ -32,7 +32,26 @@ class AIService {
       targetYear = parseInt(yearMatch[1], 10);
     }
 
-    const isQuarterQuery = promptLower.includes('quarter') || promptLower.includes('this quarter') || targetQuarter !== null;
+    const isQuarterDetectedLocally = promptLower.includes('quarter') || promptLower.includes('this quarter') || targetQuarter !== null;
+
+    // Check for explicit customer ranking query or selection
+    const isCustomerQuery = promptLower.includes('rank by sales pipeline') || 
+                            promptLower.includes('best customer') || 
+                            promptLower.includes('top client') || 
+                            promptLower.includes('top customer') ||
+                            promptLower.includes('client ranking') ||
+                            promptLower.includes('customer ranking');
+
+    if (isCustomerQuery) {
+      return {
+        intent: 'customer_analysis',
+        sector: null,
+        targetQuarter,
+        targetYear,
+        isQuarterQuery: isQuarterDetectedLocally,
+        needsClarification: false
+      };
+    }
 
     // If Gemini API Key is available, use Gemini for intent classification
     if (this.apiKey && this.model) {
@@ -42,7 +61,7 @@ You are a Business Intelligence Intent Classifier for Skylark Drones.
 Analyze the user prompt and respond with ONLY a valid JSON object matching this schema:
 
 {
-  "intent": "pipeline_analysis" | "sector_analysis" | "revenue_analysis" | "operational_analysis" | "receivables_analysis" | "cross_board_analysis" | "leadership_update" | "ambiguous_query" | "general_data_question",
+  "intent": "pipeline_analysis" | "sector_analysis" | "revenue_analysis" | "operational_analysis" | "receivables_analysis" | "cross_board_analysis" | "leadership_update" | "customer_analysis" | "ambiguous_query" | "general_data_question",
   "sector": string | null,
   "period": string | null,
   "targetQuarter": number | null,
@@ -60,6 +79,7 @@ Guidelines for intent:
 - "receivables_analysis": questions about outstanding amount, unpaid invoices, receivable priority, collections.
 - "cross_board_analysis": questions comparing sales pipeline vs execution/delivery, sector bottlenecks.
 - "leadership_update": requests for executive briefing, founder update, management summary.
+- "customer_analysis": requests to rank, filter, or analyze top customers or client codes by pipeline value.
 - "ambiguous_query": vague or underspecified questions like "show top customers", "how are things", "show performance" without clear context.
 
 User Prompt: "${userQuery}"
@@ -72,9 +92,10 @@ User Prompt: "${userQuery}"
           const parsed = JSON.parse(jsonMatch[0]);
           return {
             ...parsed,
+            intent: parsed.intent || (isCustomerQuery ? 'customer_analysis' : 'pipeline_analysis'),
             targetQuarter: parsed.targetQuarter ?? targetQuarter,
             targetYear: parsed.targetYear ?? targetYear,
-            isQuarterQuery: parsed.isQuarterQuery ?? isQuarterQuery
+            isQuarterQuery: Boolean(parsed.isQuarterQuery || isQuarterDetectedLocally)
           };
         }
       } catch (err) {
@@ -84,32 +105,33 @@ User Prompt: "${userQuery}"
 
     // Fallback Rule-Based Intent Classifier
     if (promptLower.includes('leadership') || promptLower.includes('executive') || promptLower.includes('founder update') || promptLower.includes('summary')) {
-      return { intent: 'leadership_update', sector: null, targetQuarter, targetYear, isQuarterQuery, needsClarification: false };
+      return { intent: 'leadership_update', sector: null, targetQuarter, targetYear, isQuarterQuery: isQuarterDetectedLocally, needsClarification: false };
     }
     if (promptLower.includes('compare') || promptLower.includes('vs') || (promptLower.includes('pipeline') && promptLower.includes('execution'))) {
-      return { intent: 'cross_board_analysis', sector: null, targetQuarter, targetYear, isQuarterQuery, needsClarification: false };
+      return { intent: 'cross_board_analysis', sector: null, targetQuarter, targetYear, isQuarterQuery: isQuarterDetectedLocally, needsClarification: false };
     }
     if (promptLower.includes('receivable') || promptLower.includes('unpaid') || promptLower.includes('outstanding') || promptLower.includes('pending collection')) {
-      return { intent: 'receivables_analysis', sector: null, targetQuarter, targetYear, isQuarterQuery, needsClarification: false };
+      return { intent: 'receivables_analysis', sector: null, targetQuarter, targetYear, isQuarterQuery: isQuarterDetectedLocally, needsClarification: false };
     }
     if (promptLower.includes('delayed') || promptLower.includes('work order') || promptLower.includes('execution') || promptLower.includes('not started') || promptLower.includes('operation')) {
-      return { intent: 'operational_analysis', sector: null, targetQuarter, targetYear, isQuarterQuery, needsClarification: false };
+      return { intent: 'operational_analysis', sector: null, targetQuarter, targetYear, isQuarterQuery: isQuarterDetectedLocally, needsClarification: false };
     }
     if (promptLower.includes('revenue') || promptLower.includes('billed') || promptLower.includes('collected') || promptLower.includes('billing')) {
-      return { intent: 'revenue_analysis', sector: null, targetQuarter, targetYear, isQuarterQuery, needsClarification: false };
+      return { intent: 'revenue_analysis', sector: null, targetQuarter, targetYear, isQuarterQuery: isQuarterDetectedLocally, needsClarification: false };
     }
-    if (promptLower.includes('sector') || promptLower.includes('mining') || promptLower.includes('renewable') || promptLower.includes('powerline')) {
+    if (promptLower.includes('aerospace') || promptLower.includes('mining') || promptLower.includes('renewable') || promptLower.includes('powerline') || promptLower.includes('railway') || promptLower.includes('sector')) {
       let sector = null;
+      if (promptLower.includes('aerospace')) sector = 'Aerospace';
       if (promptLower.includes('mining')) sector = 'Mining';
       if (promptLower.includes('renewable')) sector = 'Renewables';
       if (promptLower.includes('powerline')) sector = 'Powerline';
       if (promptLower.includes('railway')) sector = 'Railways';
-      return { intent: 'sector_analysis', sector, targetQuarter, targetYear, isQuarterQuery, needsClarification: false };
+      return { intent: 'sector_analysis', sector, targetQuarter, targetYear, isQuarterQuery: isQuarterDetectedLocally, needsClarification: false };
     }
     if (promptLower.includes('pipeline') || promptLower.includes('deal') || promptLower.includes('stage') || promptLower.includes('quarter')) {
-      return { intent: 'pipeline_analysis', sector: null, targetQuarter, targetYear, isQuarterQuery, needsClarification: false };
+      return { intent: 'pipeline_analysis', sector: null, targetQuarter, targetYear, isQuarterQuery: isQuarterDetectedLocally, needsClarification: false };
     }
-    if (promptLower.includes('best customer') || promptLower.includes('top client') || promptLower.includes('how is performance') || promptLower.includes('top performance')) {
+    if (promptLower.includes('best customer') || promptLower.includes('top client') || promptLower.includes('how is performance') || promptLower.includes('top performance') || promptLower.includes('best client')) {
       return {
         intent: 'ambiguous_query',
         needsClarification: true,
@@ -117,7 +139,7 @@ User Prompt: "${userQuery}"
       };
     }
 
-    return { intent: 'general_data_question', sector: null, needsClarification: false };
+    return { intent: 'general_data_question', sector: null, isQuarterQuery: isQuarterDetectedLocally, needsClarification: false };
   }
 
   /**
@@ -138,7 +160,9 @@ RULES:
    - **Supporting Metrics**: Bullet points of key figures (in ₹ Lakhs/Crores where relevant).
    - **Insights & Risks**: 2-3 strategic observations based on the data.
    - **Data Quality & Caveats**: Explicitly mention missing data limitations.
-3. Be professional, direct, and founder-focused.
+3. If the user asked about a specific sector (e.g. Aerospace) and 0 matching deals were found, explicitly state that 0 active deals exist for that sector (₹0 pipeline value). Do NOT report overall pipeline figures as the answer for that sector query.
+4. If intent is "customer_analysis", list top customer codes with their deal count and pipeline value.
+5. Be professional, direct, and founder-focused.
 
 User Query: "${userQuery}"
 Calculated BI Data: ${JSON.stringify(calculationResults, null, 2)}
@@ -169,13 +193,49 @@ Data Quality Audit: ${JSON.stringify(caveats, null, 2)}
 
     let answerText = '';
 
-    if (intent === 'pipeline_analysis') {
-      const p = data.pipeline;
+    if (intent === 'customer_analysis') {
+      const cust = data.customer || { topCustomers: [] };
+      const topList = (cust.topCustomers || []).slice(0, 5);
+
       answerText = `
-### 📊 Pipeline Health Analysis
+### 🏆 Top Customers by Sales Pipeline Value
 
 **Key Answer**: 
-Skylark currently has **${p.activeDealsCount} active deals** with a total unweighted pipeline value of **${formatRupees(p.totalActivePipelineValue)}**. The weighted pipeline value stands at **${formatRupees(p.weightedPipelineValue)}** based on available probability metrics.
+Skylark maintains **${cust.totalCustomersCount || 0} active clients** in the pipeline. Here are the top customer codes ranked by active sales pipeline deal value:
+
+**Top Customers Breakdown**:
+${topList.map((c, idx) => `${idx + 1}. **${c.clientCode}**: ${c.activeDealsCount} active deal${c.activeDealsCount > 1 ? 's' : ''} — **${formatRupees(c.totalPipelineValue)}**`).join('\n')}
+
+**Ranking Basis**: 
+Calculated deterministically by summing unweighted active deal values per client code from Monday.com Deals records.
+
+**Data Quality Caveat**: 
+${caveats.caveats.slice(0, 2).join(' ')}
+      `;
+    } else if (intent === 'pipeline_analysis' || intent === 'sector_analysis') {
+      const p = data.pipeline;
+      if (p.isSectorFiltered && p.activeDealsCount === 0) {
+        answerText = `
+### 📊 Sector Pipeline Analysis: ${p.targetSector}
+
+**Key Answer**: 
+No active sales pipeline deals were found for the **${p.targetSector}** sector (**0 matching deals**, total pipeline value **₹0**).
+
+**Supporting Metrics**:
+* **Target Sector**: ${p.targetSector}
+* **Matching Active Deals**: 0
+* **Total Pipeline Value**: ₹0
+* **Weighted Pipeline**: ₹0
+
+**Data Quality Caveat**: 
+All 346 deal records were audited. Zero active deals match sector label "${p.targetSector}".
+        `;
+      } else {
+        answerText = `
+### 📊 Pipeline Health Analysis ${p.targetSector ? `(${p.targetSector} Sector)` : ''}
+
+**Key Answer**: 
+Skylark currently has **${p.activeDealsCount} active deals** ${p.targetSector ? `in ${p.targetSector}` : ''} with a total unweighted pipeline value of **${formatRupees(p.totalActivePipelineValue)}**. The weighted pipeline value stands at **${formatRupees(p.weightedPipelineValue)}** based on available probability metrics.
 
 **Supporting Metrics**:
 * **Active Deals**: ${p.activeDealsCount}
@@ -188,7 +248,8 @@ ${Object.entries(p.stageBreakdown || {}).map(([stage, val]) => `* **${stage}**: 
 
 **Data Quality Caveat**: 
 ${caveats.caveats.length > 0 ? caveats.caveats.slice(0, 2).join(' ') : 'No significant pipeline data gaps detected.'}
-      `;
+        `;
+      }
     } else if (intent === 'revenue_analysis' || intent === 'receivables_analysis') {
       const f = data.financial;
       answerText = `
@@ -228,7 +289,7 @@ ${(o.delayedProjects || []).slice(0, 3).map(p => `* **${p.dealName}** (${p.secto
 **Data Quality Caveat**:
 ${caveats.caveats.filter(c => c.includes('execution')).join(' ') || 'Execution status recorded across active work orders.'}
       `;
-    } else if (intent === 'cross_board_analysis' || intent === 'sector_analysis') {
+    } else if (intent === 'cross_board_analysis') {
       const cb = data.crossBoard;
       answerText = `
 ### 🌐 Cross-Board Sector & Execution Comparison

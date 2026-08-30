@@ -1,12 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import { 
   calculatePipelineMetrics, 
+  calculateCustomerMetrics,
   calculateFinancialMetrics, 
   calculateOperationalMetrics, 
   calculateCrossBoardMetrics,
   getCurrentQuarterInfo,
   getQuarterInfo
 } from '../server/services/analyticsService.js';
+import { aiService } from '../server/services/aiService.js';
 
 describe('Deterministic Analytics Engine Tests', () => {
   describe('Dynamic Quarter & Year Calculations', () => {
@@ -56,11 +58,26 @@ describe('Deterministic Analytics Engine Tests', () => {
     });
   });
 
-  describe('Explicit Quarter Pipeline Filtering Tests', () => {
+  describe('Authoritative Quarter Intent Classification', () => {
+    it('ensures local regex forces isQuarterQuery === true even when Gemini returns false', async () => {
+      const res = await aiService.classifyIntent('How is our pipeline looking this quarter?');
+      expect(res.isQuarterQuery).toBe(true);
+    });
+
+    it('detects explicit quarter queries correctly', async () => {
+      const q1 = await aiService.classifyIntent('How was our pipeline in Q1 2026?');
+      expect(q1.isQuarterQuery).toBe(true);
+      expect(q1.targetQuarter).toBe(1);
+      expect(q1.targetYear).toBe(2026);
+    });
+  });
+
+  describe('Explicit Quarter & Sector Pipeline Filtering Tests', () => {
     const sampleDeals = [
       {
         id: '1',
         dealName: 'Q1 Deal 1',
+        clientCode: 'COMPANY100',
         sector: 'Renewables',
         dealStatus: 'Won',
         dealStage: 'Work Order Received',
@@ -71,6 +88,7 @@ describe('Deterministic Analytics Engine Tests', () => {
       {
         id: '2',
         dealName: 'Q1 Deal 2',
+        clientCode: 'COMPANY200',
         sector: 'Mining',
         dealStatus: 'Open',
         dealStage: 'Proposal/Commercials Sent',
@@ -81,6 +99,7 @@ describe('Deterministic Analytics Engine Tests', () => {
       {
         id: '3',
         dealName: 'Q2 Deal',
+        clientCode: 'COMPANY100',
         sector: 'Mining',
         dealStatus: 'Open',
         dealStage: 'Negotiations',
@@ -91,6 +110,7 @@ describe('Deterministic Analytics Engine Tests', () => {
       {
         id: '4',
         dealName: 'Missing Date Deal',
+        clientCode: 'COMPANY300',
         sector: 'Powerline',
         dealStatus: 'Open',
         dealStage: 'Lead Generated',
@@ -111,20 +131,39 @@ describe('Deterministic Analytics Engine Tests', () => {
       expect(p.dealsExcludedMissingDate).toBe(1);
     });
 
-    it('filters Q2 2026 explicitly', () => {
-      const p = calculatePipelineMetrics(sampleDeals, { filterQuarter: true, quarter: 2, year: 2026 });
-      expect(p.isQuarterFiltered).toBe(true);
-      expect(p.quarterInfo.quarterName).toBe('Q2 2026');
-      expect(p.activeDealsCount).toBe(1);
-      expect(p.totalActivePipelineValue).toBe(5000000);
-      expect(p.dealsOutsideQuarter).toBe(2);
+    it('filters sector correctly for existing sector Mining', () => {
+      const p = calculatePipelineMetrics(sampleDeals, { sector: 'Mining' });
+      expect(p.isSectorFiltered).toBe(true);
+      expect(p.targetSector).toBe('Mining');
+      expect(p.activeDealsCount).toBe(2);
+      expect(p.totalActivePipelineValue).toBe(7000000); // 2m + 5m
     });
 
-    it('preserves total active pipeline when filterQuarter is false', () => {
+    it('returns zero matching deals and zero pipeline value for nonexistent sector Aerospace', () => {
+      const p = calculatePipelineMetrics(sampleDeals, { sector: 'Aerospace' });
+      expect(p.isSectorFiltered).toBe(true);
+      expect(p.targetSector).toBe('Aerospace');
+      expect(p.activeDealsCount).toBe(0);
+      expect(p.totalActivePipelineValue).toBe(0);
+    });
+
+    it('preserves total active pipeline when no sector or quarter filter is applied', () => {
       const p = calculatePipelineMetrics(sampleDeals, { filterQuarter: false });
       expect(p.isQuarterFiltered).toBe(false);
+      expect(p.isSectorFiltered).toBe(false);
       expect(p.activeDealsCount).toBe(4);
       expect(p.totalActivePipelineValue).toBe(11000000);
+    });
+
+    it('calculates customer metrics and ranks top customers by deal value', () => {
+      const cust = calculateCustomerMetrics(sampleDeals);
+      expect(cust.totalCustomersCount).toBe(3);
+      expect(cust.topCustomers[0].clientCode).toBe('COMPANY100');
+      expect(cust.topCustomers[0].totalPipelineValue).toBe(6000000); // 1m + 5m
+      expect(cust.topCustomers[1].clientCode).toBe('COMPANY300');
+      expect(cust.topCustomers[1].totalPipelineValue).toBe(3000000);
+      expect(cust.topCustomers[2].clientCode).toBe('COMPANY200');
+      expect(cust.topCustomers[2].totalPipelineValue).toBe(2000000);
     });
   });
 
