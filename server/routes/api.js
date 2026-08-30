@@ -122,7 +122,12 @@ router.post('/chat', async (req, res) => {
     }
 
     // 5. Deterministic Business Calculations based on Intent
-    const pipeline = calculatePipelineMetrics(deals);
+    const isQuarterQuery = !!intentInfo.isQuarterQuery;
+    const pipeline = calculatePipelineMetrics(deals, { 
+      filterQuarter: isQuarterQuery,
+      quarter: intentInfo.targetQuarter,
+      year: intentInfo.targetYear
+    });
     const financial = calculateFinancialMetrics(workOrders);
     const operational = calculateOperationalMetrics(workOrders);
     const crossBoard = calculateCrossBoardMetrics(deals, workOrders);

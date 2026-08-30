@@ -19,6 +19,21 @@ class AIService {
   async classifyIntent(userQuery) {
     const promptLower = userQuery.toLowerCase();
 
+    let targetQuarter = null;
+    let targetYear = null;
+
+    const qMatch = promptLower.match(/\bq([1-4])\b/);
+    if (qMatch) {
+      targetQuarter = parseInt(qMatch[1], 10);
+    }
+
+    const yearMatch = promptLower.match(/\b(20\d{2})\b/);
+    if (yearMatch) {
+      targetYear = parseInt(yearMatch[1], 10);
+    }
+
+    const isQuarterQuery = promptLower.includes('quarter') || promptLower.includes('this quarter') || targetQuarter !== null;
+
     // If Gemini API Key is available, use Gemini for intent classification
     if (this.apiKey && this.model) {
       try {
@@ -30,6 +45,9 @@ Analyze the user prompt and respond with ONLY a valid JSON object matching this 
   "intent": "pipeline_analysis" | "sector_analysis" | "revenue_analysis" | "operational_analysis" | "receivables_analysis" | "cross_board_analysis" | "leadership_update" | "ambiguous_query" | "general_data_question",
   "sector": string | null,
   "period": string | null,
+  "targetQuarter": number | null,
+  "targetYear": number | null,
+  "isQuarterQuery": boolean,
   "needsClarification": boolean,
   "clarificationQuestion": string | null
 }
@@ -51,7 +69,13 @@ User Prompt: "${userQuery}"
         const responseText = result.response.text().trim();
         const jsonMatch = responseText.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
-          return JSON.parse(jsonMatch[0]);
+          const parsed = JSON.parse(jsonMatch[0]);
+          return {
+            ...parsed,
+            targetQuarter: parsed.targetQuarter ?? targetQuarter,
+            targetYear: parsed.targetYear ?? targetYear,
+            isQuarterQuery: parsed.isQuarterQuery ?? isQuarterQuery
+          };
         }
       } catch (err) {
         console.warn('[AIService] Gemini classification failed, using fallback parser:', err.message);
@@ -60,19 +84,19 @@ User Prompt: "${userQuery}"
 
     // Fallback Rule-Based Intent Classifier
     if (promptLower.includes('leadership') || promptLower.includes('executive') || promptLower.includes('founder update') || promptLower.includes('summary')) {
-      return { intent: 'leadership_update', sector: null, needsClarification: false };
+      return { intent: 'leadership_update', sector: null, targetQuarter, targetYear, isQuarterQuery, needsClarification: false };
     }
     if (promptLower.includes('compare') || promptLower.includes('vs') || (promptLower.includes('pipeline') && promptLower.includes('execution'))) {
-      return { intent: 'cross_board_analysis', sector: null, needsClarification: false };
+      return { intent: 'cross_board_analysis', sector: null, targetQuarter, targetYear, isQuarterQuery, needsClarification: false };
     }
     if (promptLower.includes('receivable') || promptLower.includes('unpaid') || promptLower.includes('outstanding') || promptLower.includes('pending collection')) {
-      return { intent: 'receivables_analysis', sector: null, needsClarification: false };
+      return { intent: 'receivables_analysis', sector: null, targetQuarter, targetYear, isQuarterQuery, needsClarification: false };
     }
     if (promptLower.includes('delayed') || promptLower.includes('work order') || promptLower.includes('execution') || promptLower.includes('not started') || promptLower.includes('operation')) {
-      return { intent: 'operational_analysis', sector: null, needsClarification: false };
+      return { intent: 'operational_analysis', sector: null, targetQuarter, targetYear, isQuarterQuery, needsClarification: false };
     }
     if (promptLower.includes('revenue') || promptLower.includes('billed') || promptLower.includes('collected') || promptLower.includes('billing')) {
-      return { intent: 'revenue_analysis', sector: null, needsClarification: false };
+      return { intent: 'revenue_analysis', sector: null, targetQuarter, targetYear, isQuarterQuery, needsClarification: false };
     }
     if (promptLower.includes('sector') || promptLower.includes('mining') || promptLower.includes('renewable') || promptLower.includes('powerline')) {
       let sector = null;
@@ -80,10 +104,10 @@ User Prompt: "${userQuery}"
       if (promptLower.includes('renewable')) sector = 'Renewables';
       if (promptLower.includes('powerline')) sector = 'Powerline';
       if (promptLower.includes('railway')) sector = 'Railways';
-      return { intent: 'sector_analysis', sector, needsClarification: false };
+      return { intent: 'sector_analysis', sector, targetQuarter, targetYear, isQuarterQuery, needsClarification: false };
     }
     if (promptLower.includes('pipeline') || promptLower.includes('deal') || promptLower.includes('stage') || promptLower.includes('quarter')) {
-      return { intent: 'pipeline_analysis', sector: null, needsClarification: false };
+      return { intent: 'pipeline_analysis', sector: null, targetQuarter, targetYear, isQuarterQuery, needsClarification: false };
     }
     if (promptLower.includes('best customer') || promptLower.includes('top client') || promptLower.includes('how is performance') || promptLower.includes('top performance')) {
       return {

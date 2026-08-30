@@ -167,6 +167,11 @@ export function normalizeDeal(record) {
   const createdDate = getFieldValue(record, 'date_mm6qbxq6', 'Created Date');
   const rawValue = getFieldValue(record, 'numeric_mm6q8g6f', 'Masked Deal value', 'Deal Value');
 
+  // Filter out non-business column header artifact records (e.g. "Deal Stage" / "Deal Status")
+  if (rawStage === 'Deal Stage' || rawStatus === 'Deal Status' || name === 'Deal Name') {
+    return null;
+  }
+
   const dealValue = parseNumeric(rawValue);
   const probability = parseNumeric(rawProb);
   const normalizedProb = (probability !== null && probability > 1) ? probability / 100 : probability;

@@ -6,13 +6,90 @@ import { normalizeDeal, normalizeWorkOrder, auditDataQuality } from './normaliza
  */
 
 /**
- * Calculate Pipeline Analytics from raw/normalized Deals
+ * Calculate quarter info from target quarter/year or reference Date
  */
-export function calculatePipelineMetrics(normalizedDeals) {
-  const activeDeals = normalizedDeals.filter(d => 
+export function getQuarterInfo({ quarter = null, year = null, referenceDate = new Date() } = {}) {
+  const dateObj = referenceDate instanceof Date ? referenceDate : new Date(referenceDate);
+  const validDate = isNaN(dateObj.getTime()) ? new Date() : dateObj;
+
+  const currentYear = validDate.getUTCFullYear();
+  const currentMonth = validDate.getUTCMonth(); // 0-indexed: 0-11
+  const currentQIndex = Math.floor(currentMonth / 3);
+
+  // Parse target quarter (1, 2, 3, 4) if provided, otherwise default to current quarter
+  const parsedQ = (quarter !== null && !isNaN(parseInt(quarter, 10))) ? parseInt(quarter, 10) : (currentQIndex + 1);
+  const targetQ = (parsedQ >= 1 && parsedQ <= 4) ? parsedQ : (currentQIndex + 1);
+
+  // Parse target year (e.g. 2026) if provided, otherwise default to current system year
+  const parsedYear = (year !== null && !isNaN(parseInt(year, 10))) ? parseInt(year, 10) : currentYear;
+  const targetYear = (parsedYear > 1900) ? parsedYear : currentYear;
+
+  const quarterName = `Q${targetQ} ${targetYear}`;
+  const qStartMonth = (targetQ - 1) * 3;
+  const qEndMonth = qStartMonth + 2;
+
+  // Start of quarter: YYYY-MM-01
+  const startMonthStr = String(qStartMonth + 1).padStart(2, '0');
+  const startDate = `${targetYear}-${startMonthStr}-01`;
+
+  // End of quarter: last day of third month
+  const lastDay = new Date(Date.UTC(targetYear, qEndMonth + 1, 0)).getUTCDate();
+  const endMonthStr = String(qEndMonth + 1).padStart(2, '0');
+  const endDate = `${targetYear}-${endMonthStr}-${String(lastDay).padStart(2, '0')}`;
+
+  return {
+    year: targetYear,
+    quarter: targetQ,
+    quarterName,
+    startDate,
+    endDate
+  };
+}
+
+/**
+ * Backward compatibility helper for current quarter
+ */
+export function getCurrentQuarterInfo(refDate = new Date()) {
+  return getQuarterInfo({ referenceDate: refDate });
+}
+
+/**
+ * Calculate Pipeline Analytics from raw/normalized Deals
+ * Supports dynamic quarter-level filtering for specific target quarter & year
+ */
+export function calculatePipelineMetrics(normalizedDeals, options = {}) {
+  // Filter out null records from header artifact removal
+  const cleanDeals = (normalizedDeals || []).filter(Boolean);
+
+  const { filterQuarter = false, quarter = null, year = null, referenceDate = new Date() } = options;
+  const quarterInfo = getQuarterInfo({ quarter, year, referenceDate });
+
+  // Active Deals Filtering Condition
+  const activeDeals = cleanDeals.filter(d => 
     d.dealStatus !== 'Dead' && 
     !['Project Lost', 'L. Project Lost', 'O. Not Relevant at all', 'N. Not relevant at the moment'].includes(d.dealStage)
   );
+
+  let dealsToProcess = activeDeals;
+  let dealsExcludedMissingDate = 0;
+  let dealsOutsideQuarter = 0;
+  let dealsIncludedInQuarter = 0;
+
+  if (filterQuarter) {
+    dealsToProcess = [];
+    activeDeals.forEach(deal => {
+      // Field Selection: Tentative Close Date as primary expected close date, falling back to Close Date (A)
+      const expectedCloseDate = deal.tentativeCloseDate || deal.actualCloseDate;
+      if (!expectedCloseDate) {
+        dealsExcludedMissingDate++;
+      } else if (expectedCloseDate >= quarterInfo.startDate && expectedCloseDate <= quarterInfo.endDate) {
+        dealsToProcess.push(deal);
+        dealsIncludedInQuarter++;
+      } else {
+        dealsOutsideQuarter++;
+      }
+    });
+  }
 
   let totalActivePipelineValue = 0;
   let weightedPipelineValue = 0;
@@ -26,7 +103,7 @@ export function calculatePipelineMetrics(normalizedDeals) {
 
   const todayStr = new Date().toISOString().split('T')[0];
 
-  activeDeals.forEach(deal => {
+  dealsToProcess.forEach(deal => {
     // Value accumulation
     if (deal.dealValue !== null) {
       totalActivePipelineValue += deal.dealValue;
@@ -71,8 +148,14 @@ export function calculatePipelineMetrics(normalizedDeals) {
   });
 
   return {
-    totalDealsCount: normalizedDeals.length,
-    activeDealsCount: activeDeals.length,
+    isQuarterFiltered: filterQuarter,
+    quarterInfo: filterQuarter ? quarterInfo : null,
+    totalDealsCount: cleanDeals.length,
+    activeDealsCountBeforeFilter: activeDeals.length,
+    activeDealsCount: dealsToProcess.length,
+    dealsIncludedInQuarter,
+    dealsExcludedMissingDate,
+    dealsOutsideQuarter,
     totalActivePipelineValue,
     weightedPipelineValue,
     dealsWithValueCount,
@@ -81,7 +164,7 @@ export function calculatePipelineMetrics(normalizedDeals) {
     sectorBreakdown,
     missingCloseDatesCount: missingCloseDates.length,
     approachingCloseDatesCount: approachingCloseDates.length,
-    activeDealsSample: activeDeals.slice(0, 5)
+    activeDealsSample: dealsToProcess.slice(0, 5)
   };
 }
 
@@ -89,6 +172,8 @@ export function calculatePipelineMetrics(normalizedDeals) {
  * Calculate Financial Analytics from normalized Work Orders
  */
 export function calculateFinancialMetrics(normalizedWorkOrders) {
+  const cleanWorkOrders = (normalizedWorkOrders || []).filter(Boolean);
+
   let totalBilledValue = 0;
   let totalCollectedAmount = 0;
   let totalAmountReceivable = 0;
@@ -100,7 +185,7 @@ export function calculateFinancialMetrics(normalizedWorkOrders) {
   let receivableCount = 0;
   let tobeBilledCount = 0;
 
-  normalizedWorkOrders.forEach(wo => {
+  cleanWorkOrders.forEach(wo => {
     if (wo.amountExclGst !== null) {
       totalOrderValueExclGst += wo.amountExclGst;
     }
@@ -127,7 +212,7 @@ export function calculateFinancialMetrics(normalizedWorkOrders) {
     : '0.0';
 
   return {
-    totalWorkOrdersCount: normalizedWorkOrders.length,
+    totalWorkOrdersCount: cleanWorkOrders.length,
     totalOrderValueExclGst,
     totalBilledValue,
     totalCollectedAmount,
@@ -145,6 +230,8 @@ export function calculateFinancialMetrics(normalizedWorkOrders) {
  * Calculate Operational Analytics from Work Orders
  */
 export function calculateOperationalMetrics(normalizedWorkOrders) {
+  const cleanWorkOrders = (normalizedWorkOrders || []).filter(Boolean);
+
   const executionStatusBreakdown = {};
   const woStatusBreakdown = {};
   const billingStatusBreakdown = {};
@@ -152,7 +239,7 @@ export function calculateOperationalMetrics(normalizedWorkOrders) {
 
   const todayStr = new Date().toISOString().split('T')[0];
 
-  normalizedWorkOrders.forEach(wo => {
+  cleanWorkOrders.forEach(wo => {
     // Execution Status
     const status = wo.executionStatus || 'Unspecified';
     executionStatusBreakdown[status] = (executionStatusBreakdown[status] || 0) + 1;
@@ -177,7 +264,6 @@ export function calculateOperationalMetrics(normalizedWorkOrders) {
         amountExclGst: wo.amountExclGst
       });
     } else if (status === 'Not Started' || status === 'On Hold') {
-      // Also flag inactive / stalled projects
       if (wo.amountExclGst && wo.amountExclGst > 500000) {
         delayedProjects.push({
           id: wo.id,
@@ -193,7 +279,7 @@ export function calculateOperationalMetrics(normalizedWorkOrders) {
   });
 
   return {
-    totalWorkOrders: normalizedWorkOrders.length,
+    totalWorkOrders: cleanWorkOrders.length,
     executionStatusBreakdown,
     woStatusBreakdown,
     billingStatusBreakdown,
@@ -206,7 +292,7 @@ export function calculateOperationalMetrics(normalizedWorkOrders) {
  * Calculate Cross-Board Metrics by Sector (Sales Pipeline vs Work Order Execution)
  */
 export function calculateCrossBoardMetrics(normalizedDeals, normalizedWorkOrders) {
-  const pipelineMetrics = calculatePipelineMetrics(normalizedDeals);
+  const pipelineMetrics = calculatePipelineMetrics(normalizedDeals, { filterQuarter: false });
   const financialMetrics = calculateFinancialMetrics(normalizedWorkOrders);
 
   const sectorComparison = {};
@@ -228,7 +314,8 @@ export function calculateCrossBoardMetrics(normalizedDeals, normalizedWorkOrders
   });
 
   // Aggregate Work Orders by Sector
-  normalizedWorkOrders.forEach(wo => {
+  const cleanWorkOrders = (normalizedWorkOrders || []).filter(Boolean);
+  cleanWorkOrders.forEach(wo => {
     const sector = wo.sector;
     if (!sectorComparison[sector]) {
       sectorComparison[sector] = {
@@ -285,24 +372,19 @@ export function calculateCrossBoardMetrics(normalizedDeals, normalizedWorkOrders
  * Generate Comprehensive Executive Leadership Brief
  */
 export function generateLeadershipUpdate(rawDeals, rawWorkOrders) {
-  const deals = rawDeals.map(normalizeDeal);
-  const workOrders = rawWorkOrders.map(normalizeWorkOrder);
+  const deals = rawDeals.map(normalizeDeal).filter(Boolean);
+  const workOrders = rawWorkOrders.map(normalizeWorkOrder).filter(Boolean);
 
-  const pipeline = calculatePipelineMetrics(deals);
+  const pipeline = calculatePipelineMetrics(deals, { filterQuarter: false });
   const financial = calculateFinancialMetrics(workOrders);
   const operational = calculateOperationalMetrics(workOrders);
   const crossBoard = calculateCrossBoardMetrics(deals, workOrders);
   const quality = auditDataQuality(deals, workOrders);
 
-  // Format currency helpers (INR Lakhs / Crores)
   const formatRupees = (amount) => {
     if (!amount || amount === 0) return '₹0';
-    if (amount >= 10000007) {
-      return `₹${(amount / 10000000).toFixed(2)} Cr`;
-    }
-    if (amount >= 100000) {
-      return `₹${(amount / 100000).toFixed(2)} Lakhs`;
-    }
+    if (amount >= 10000000) return `₹${(amount / 10000000).toFixed(2)} Cr`;
+    if (amount >= 100000) return `₹${(amount / 100000).toFixed(2)} Lakhs`;
     return `₹${amount.toLocaleString('en-IN')}`;
   };
 
