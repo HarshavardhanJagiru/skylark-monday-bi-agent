@@ -243,6 +243,14 @@ Every query response contains an explicit **Data Quality & Caveats Box**:
 * **Antigravity AI Agent**: Code generation, architecture design, unit testing, and documentation.
 
 ---
+## Challenges Faced
+
+* **Messy Source Data**: Inconsistent dates, currency formats, missing values, and imported header artifacts required a normalization and data-quality layer.
+* **LLM Reliability**: Financial calculations needed to remain deterministic, so Gemini was restricted to intent classification and natural-language synthesis.
+* **Production Debugging**: Some queries behaved differently after deployment because LLM classification and response synthesis required production-level validation.
+* **Open-Ended Queries**: Ambiguous executive questions required clarification rather than arbitrary assumptions.
+
+---
 
 ## Limitations & Future Improvements
 
