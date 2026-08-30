@@ -162,7 +162,8 @@ RULES:
    - **Data Quality & Caveats**: Explicitly mention missing data limitations.
 3. If the user asked about a specific sector (e.g. Aerospace) and 0 matching deals were found, explicitly state that 0 active deals exist for that sector (₹0 pipeline value). Do NOT report overall pipeline figures as the answer for that sector query.
 4. If intent is "customer_analysis", list top customer codes with their deal count and pipeline value.
-5. Be professional, direct, and founder-focused.
+5. If intent is "sector_analysis" and user asks which sector has the highest pipeline value, answer directly using crossBoard.topPipelineSector (e.g. Tender at ₹53.20 Cr) and crossBoard.sectorComparison. Do NOT report overall pipeline figures (e.g. ₹78.32 Cr) as the main answer.
+6. Be professional, direct, and founder-focused.
 
 User Query: "${userQuery}"
 Calculated BI Data: ${JSON.stringify(calculationResults, null, 2)}
@@ -212,10 +213,13 @@ Calculated deterministically by summing unweighted active deal values per client
 **Data Quality Caveat**: 
 ${caveats.caveats.slice(0, 2).join(' ')}
       `;
-    } else if (intent === 'pipeline_analysis' || intent === 'sector_analysis') {
+    } else if (intent === 'sector_analysis') {
       const p = data.pipeline;
-      if (p.isSectorFiltered && p.activeDealsCount === 0) {
-        answerText = `
+      const cb = data.crossBoard || {};
+
+      if (p.isSectorFiltered) {
+        if (p.activeDealsCount === 0) {
+          answerText = `
 ### 📊 Sector Pipeline Analysis: ${p.targetSector}
 
 **Key Answer**: 
@@ -229,13 +233,13 @@ No active sales pipeline deals were found for the **${p.targetSector}** sector (
 
 **Data Quality Caveat**: 
 All 346 deal records were audited. Zero active deals match sector label "${p.targetSector}".
-        `;
-      } else {
-        answerText = `
-### 📊 Pipeline Health Analysis ${p.targetSector ? `(${p.targetSector} Sector)` : ''}
+          `;
+        } else {
+          answerText = `
+### 📊 Pipeline Health Analysis (${p.targetSector} Sector)
 
 **Key Answer**: 
-Skylark currently has **${p.activeDealsCount} active deals** ${p.targetSector ? `in ${p.targetSector}` : ''} with a total unweighted pipeline value of **${formatRupees(p.totalActivePipelineValue)}**. The weighted pipeline value stands at **${formatRupees(p.weightedPipelineValue)}** based on available probability metrics.
+Skylark currently has **${p.activeDealsCount} active deals** in **${p.targetSector}** with a total unweighted pipeline value of **${formatRupees(p.totalActivePipelineValue)}**. The weighted pipeline value stands at **${formatRupees(p.weightedPipelineValue)}** based on available probability metrics.
 
 **Supporting Metrics**:
 * **Active Deals**: ${p.activeDealsCount}
@@ -248,8 +252,47 @@ ${Object.entries(p.stageBreakdown || {}).map(([stage, val]) => `* **${stage}**: 
 
 **Data Quality Caveat**: 
 ${caveats.caveats.length > 0 ? caveats.caveats.slice(0, 2).join(' ') : 'No significant pipeline data gaps detected.'}
+          `;
+        }
+      } else {
+        // Sector ranking query e.g. "Which sector has the highest pipeline value?"
+        const sortedSectors = (cb.sectorComparison || []).slice().sort((a, b) => (b.pipelineValue || 0) - (a.pipelineValue || 0));
+        const topSector = sortedSectors[0] || { sector: 'N/A', pipelineValue: 0 };
+        const secondSector = sortedSectors[1] || { sector: 'N/A', pipelineValue: 0 };
+
+        answerText = `
+### 🌐 Sector Pipeline Ranking
+
+**Key Answer**: 
+**${topSector.sector}** leads in active sales pipeline value at **${formatRupees(topSector.pipelineValue)}**, followed by **${secondSector.sector}** at **${formatRupees(secondSector.pipelineValue)}**.
+
+**Sector Pipeline Breakdown (Ranked by Pipeline Value)**:
+${sortedSectors.slice(0, 5).map((s, idx) => `${idx + 1}. **${s.sector}**: ${s.activeDealsCount || s.workOrdersCount || 0} active deals — **${formatRupees(s.pipelineValue)}**`).join('\n')}
+
+**Data Quality Caveat**: 
+${caveats.caveats.length > 0 ? caveats.caveats.slice(0, 2).join(' ') : 'Sector rankings calculated from live Monday.com Deals board.'}
         `;
       }
+    } else if (intent === 'pipeline_analysis') {
+      const p = data.pipeline;
+      answerText = `
+### 📊 Pipeline Health Analysis
+
+**Key Answer**: 
+Skylark currently has **${p.activeDealsCount} active deals** with a total unweighted pipeline value of **${formatRupees(p.totalActivePipelineValue)}**. The weighted pipeline value stands at **${formatRupees(p.weightedPipelineValue)}** based on available probability metrics.
+
+**Supporting Metrics**:
+* **Active Deals**: ${p.activeDealsCount}
+* **Total Pipeline Value**: ${formatRupees(p.totalActivePipelineValue)}
+* **Weighted Pipeline**: ${formatRupees(p.weightedPipelineValue)}
+* **Deals with Close Date**: ${p.activeDealsCount - p.missingCloseDatesCount} of ${p.activeDealsCount}
+
+**Stage Breakdown**:
+${Object.entries(p.stageBreakdown || {}).map(([stage, val]) => `* **${stage}**: ${val.count} deals (${formatRupees(val.totalValue)})`).join('\n')}
+
+**Data Quality Caveat**: 
+${caveats.caveats.length > 0 ? caveats.caveats.slice(0, 2).join(' ') : 'No significant pipeline data gaps detected.'}
+      `;
     } else if (intent === 'revenue_analysis' || intent === 'receivables_analysis') {
       const f = data.financial;
       answerText = `

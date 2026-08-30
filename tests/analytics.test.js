@@ -58,7 +58,7 @@ describe('Deterministic Analytics Engine Tests', () => {
     });
   });
 
-  describe('Authoritative Quarter Intent Classification', () => {
+  describe('Authoritative Quarter & Sector Intent Classification', () => {
     it('ensures local regex forces isQuarterQuery === true even when Gemini returns false', async () => {
       const res = await aiService.classifyIntent('How is our pipeline looking this quarter?');
       expect(res.isQuarterQuery).toBe(true);
@@ -69,6 +69,32 @@ describe('Deterministic Analytics Engine Tests', () => {
       expect(q1.isQuarterQuery).toBe(true);
       expect(q1.targetQuarter).toBe(1);
       expect(q1.targetYear).toBe(2026);
+    });
+
+    it('renders sector ranking correctly for "Which sector has the highest pipeline value?"', () => {
+      const mockData = {
+        pipeline: { activeDealsCount: 217, totalActivePipelineValue: 783191232.15, isSectorFiltered: false },
+        crossBoard: {
+          topPipelineSector: 'Tender',
+          sectorComparison: [
+            { sector: 'Tender', pipelineValue: 531964562.45, activeDealsCount: 4 },
+            { sector: 'Railways', pipelineValue: 106278916.08, activeDealsCount: 29 },
+            { sector: 'Mining', pipelineValue: 45549946.88, activeDealsCount: 78 }
+          ]
+        }
+      };
+
+      const response = aiService.renderFallbackResponse(
+        'Which sector has the highest pipeline value?',
+        'sector_analysis',
+        mockData,
+        { caveats: [] }
+      );
+
+      expect(response).toContain('Sector Pipeline Ranking');
+      expect(response).toContain('Tender');
+      expect(response).toContain('₹53.20 Cr');
+      expect(response).not.toContain('217 active deals');
     });
   });
 
