@@ -1,6 +1,6 @@
 # Skylark Drones — Monday.com Business Intelligence Conversational Agent
 
-A production-quality conversational Business Intelligence (BI) MVP built for Skylark Drones. The agent reads live data dynamically from two Monday.com boards (**Deals** and **Work Orders**) via Monday.com's GraphQL API, normalizes inconsistent/messy values, executes deterministic business calculations in JavaScript, and provides executive-ready natural language insights via Gemini AI.
+A production-oriented conversational Business Intelligence (BI) MVP built for Skylark Drones. The agent reads live data dynamically from two Monday.com boards (**Deals** and **Work Orders**) via Monday.com's GraphQL API, normalizes inconsistent/messy values, executes deterministic business calculations in JavaScript, and provides executive-ready natural language insights via Gemini AI.
 
 ---
 
@@ -113,10 +113,6 @@ Copy `.env.example` to `.env`:
 MONDAY_API_TOKEN=your_monday_api_token_here
 MONDAY_DEALS_BOARD_ID=1234567890
 MONDAY_WORK_ORDERS_BOARD_ID=0987654321
-
-# Google Gemini AI API Key
-GEMINI_API_KEY=your_gemini_api_key_here
-AI_API_KEY=your_gemini_api_key_here
 
 # Server Port
 PORT=3001
