@@ -68,7 +68,6 @@ Executive teams need quick, reliable answers about revenue, pipeline health, sec
 * **Frontend**: React 19, Vite, Lucide Icons, Vanilla CSS (Design System with HSL tokens, dark mode, glassmorphism).
 * **Backend**: Node.js (ES Modules), Express.
 * **Database / Source of Truth**: Monday.com GraphQL API v2 (`https://api.monday.com/v2`).
-* **AI Provider**: Google Gemini API (`gemini-1.5-flash` via `@google/generative-ai`) with deterministic rule-based fallback.
 * **Testing**: Vitest (`npm test`).
 
 ---
@@ -111,8 +110,8 @@ Copy `.env.example` to `.env`:
 ```ini
 # Monday.com API Configuration
 MONDAY_API_TOKEN=your_monday_api_token_here
-MONDAY_DEALS_BOARD_ID=1234567890
-MONDAY_WORK_ORDERS_BOARD_ID=0987654321
+MONDAY_DEALS_BOARD_ID=Your_MONDAY_DEALS_BOARD_ID
+MONDAY_WORK_ORDERS_BOARD_ID=Your_MONDAY_WORK_ORDERS_BOARD_ID
 
 # Server Port
 PORT=3001
